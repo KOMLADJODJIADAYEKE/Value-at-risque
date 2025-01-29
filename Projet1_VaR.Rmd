@@ -1,0 +1,928 @@
+---
+title: "Value at Risk: Les propriétés des séries financières"
+author: "Komla Djodji ADAYEKE, Université de Bordeaux"
+date: "2023-10-02"
+output: 
+  html_document: 
+    toc: yes
+    theme: cerulean
+    df_print: default
+---
+
+```{r setup, include=FALSE , warning=FALSE, error=FALSE, echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+  error = FALSE,
+  warning = FALSE,
+  message = FALSE
+  )
+```
+
+
+
+```{r}
+rm(list=ls(all=TRUE))
+library(xts)
+library(forecast)
+library(moments)
+library(yfR)
+library(scales)
+library(forecast);library(caschrono)
+ library(lmtest);library(urca)
+```
+
+```{r}
+##Merck & Co., Inc. (MRK)----
+# set options for algorithm
+my_ticker <- 'MRK'
+first_date <- "2010-01-04"
+last_date <-"2023-09-25"
+# fetch data
+# fetch data
+df_yf <- yf_get(tickers = my_ticker,
+first_date = first_date,
+last_date = last_date,
+freq_data='daily',type_return='log')
+pt<-df_yf$price_adjusted
+dpt=diff(pt)
+datesp<-df_yf$ref_date
+dates<-datesp[-1]
+rt=df_yf$ret_adjusted_prices[-1]
+N<-length(rt)
+rte<-rt[1:1509]
+T<-length(rte)
+rtt<-rt[1510:N]
+
+
+```
+
+# Introduction
+
+Les caractéristiques particulières de chaque série financière rendent l'étude des séries financières ambitieuse. Nous avons choisi de plonger dans l'analyse de l'action de Merck & Co, observée depuis le 4 janvier 2010 jusqu'au 25 septembre 2023, pour explorer de près les huit principales propriétés des rendements logarithmiques, telles que mises en lumière par Charpentier en 2002. L'objectif ultime de cette entreprise, qui est ultérieure à ce travail, est d'estimer la Value-at-Risk, un indicateur essentiel du risque d'un portefeuille financier, en utilisant la méthode du backtesting. Pour ce faire, nous avons scindé la période d'étude en deux ensembles distincts : l'un pour l'estimation, couvrant la période allant du 4 janvier 2010 au 31 décembre 2017, et l'autre pour le test, s'étendant du 1er janvier 2018 au 25 septembre 2023. Nous allons explorer parallèlement les propriétés sur les deux ensembles."
+
+#### Chronogramme de l'action de Merck & Co: les prix, les variations et les rendements logarithmiques
+
+*** Notations ***
+
+Soit
+
+-   $p_t$ le cours d'une action à la date t qui est un jour ouvré à la Bourse
+
+-   $dp_t$ les variations du cours: $dp_t = p_t-p_{t-1}$
+
+-   et $r_t$ le rendement logarithmique: $r_t = log(p_t) - log(p_{t-1})$
+
+```{r}
+op<-par(mfrow=c(3,1))
+plot(datesp,pt,type='l',ylab="cours de Merck & Co",col=3)
+plot(dates,dpt,type='l',col=2,ylab="variations de Merck & Co")
+plot(dates,rt,type='l',col=1,ylab="rendement de Merck & Co")
+par(op)
+```
+
+Figure 1: Action de Merck & Co : ses valeurs, ses variations et son rendement logarithmique
+
+
+
+La Figure 1 met en évidence quelques caractéristiques de la série des prix de l'action de Merck & Co : une tendance à la hausse des prix, tandis que ses variations et son rendement logarithmique oscillent autour de zéro. De manière remarquable, ces fluctuations autour de zéro augmentent progressivement au fil du temps, en particulier pour le point de données des variations. Il semble y avoir des pics de volatilité en 2021 et en 2022
+
+Par la suite, nous nommerons l'ensemble d'estimation "r_{te}" et l'ensemble de test "r_{tt}". Les explorations des propriétés de l'ensemble de test seront présentées dans la partie annexe.
+
+
+
+
+```{r}
+rte=rt[1:2013]#rt sur ensemble estimation de 2010-01-04  Ã  2017-12_31 inclu
+rtt=rt[2014:N]#rt sur l'ensemble de test de 2018-01_01  Ã  2023-09-25 inclu
+```
+
+Étant donné que le rendement oscille autour de zéro, nous entreprendrons un test d'hypothèse visant à confirmer que la moyenne empirique du rendement est égale à zéro.
+
+
+
+
+Nous allons tester:
+
+$H_0: E[r_{te}]=0$ vs $H_1: E[r_{te}]\neq0$
+
+La statistique de test sous $H_0$ est:
+
+$t=\frac{\bar{r_{te}}}{\hat{\sigma}/\sqrt{T}}$, $t$ suit une loi student à $T-1$ degrés de liberté
+
+```{r}
+rbar<-mean(rte) #moyenne empirique
+s=sd(rte)
+rbar/(s/sqrt(T))
+```
+
+Quand T est >200, la Student et la Normale se confondent et la valeur tabulée est
+1.96. Comme \|1.131794\|\<1,96 ( valeur critique de la loi normale billatéral à 5%), Nous aceptons $H_0$ et nous concluons que l'espérance du PGD qui a généré $r_{te}$ est nulle
+
+# Les principales propriétés des séries financières
+
+## Propriété 1 : La Stationnarité
+
+Les processus stochastiques $p_t$ associés aux prix d’actif
+sont généralement non stationnaires au sens de la stationnarité du second ordre,
+tandis que les processus associés aux rendements logarithmiques sont compatibles avec la propriété
+de stationnarité au second ordre. Un processus stochastique est dit stationnaire au second ordre si et seulement si sa variance est finie, la moyenne est indépendante du temps et la fonction d'autocorrélations indépendant de temps. Nous allons faire des tests de racine unitaire sur le rendement logarithmique de Merk and Co pour explorer cette propriété.
+
+#### **Test de Dickey-fuller** :{#DF}
+
+Nous avons exploré les spécifications de tendance ('trend') et de dérive ('drift'), qui ne sont pas appropriées pour notre série de rendement logarithmique. ([Cliquez ici pour plus de détails](#annexe-1)). L'équation de la spécification "none" est la suivante :
+
+$\Delta Y_t = (\rho − 1)Y_{t−1}+\epsilon_t$
+
+On teste la significativité de $(\rho -1)$.
+
+Les hypothèses: $H_0 : \rho-1 = 0$ versus $H_a: |\rho|< 0$
+
+```{r}
+library(urca)
+summary(ur.df(rte,lag=0,type="none"))
+```
+
+    ############################################### 
+    # Augmented Dickey-Fuller Test Unit Root Test # 
+    ############################################### 
+    Test regression none 
+    Call:
+    lm(formula = z.diff ~ z.lag.1 - 1)
+    Residuals:
+          Min        1Q    Median        3Q       Max 
+    -0.068414 -0.005878  0.000179  0.007000  0.099072 
+
+    Coefficients:
+            Estimate Std. Error t value Pr(>|t|)    
+    z.lag.1  -1.0182     0.0223  -45.67   <2e-16 ***
+    ---
+    Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+    Residual standard error: 0.0121 on 2011 degrees of freedom
+    Multiple R-squared:  0.5091,    Adjusted R-squared:  0.5089 
+    F-statistic:  2086 on 1 and 2011 DF,  p-value: < 2.2e-16
+
+    Value of test-statistic is: -45.6687 
+
+    Critical values for test statistics: 
+          1pct  5pct 10pct
+    tau1 -2.58 -1.95 -1.62
+
+La valeur calculée de la statistique t est -45.6687, ce qui est inférieur à la valeur critique de -1.95 à 5%. Par conséquent, nous rejetons l'hypothèse nulle $(H_0)$ et concluons que le processus de génération de données (PGD) n'est pas de type DS. Cette conclusion reste valide sous l'assomption que les résidus de la régression de Dickey Fuller ne présentent pas d'autocorrélation. Pour confirmer cette condition, nous procédons à une vérification.
+
+```{r}
+library(urca)
+plot(ur.df(rte,lag=0,type="none"))
+```
+
+Figure 2: Corrélogrammes des résidus de la régression de Dickey Fuller
+
+
+
+
+La figure 2 nous indique que les aléas sont autocorrélés aux ordres 10, 14 et 27. Les résultats du test de Dickey-Fuller ne sont pas valides. Nous allons donc effectuer le test de Dickey-Fuller augmenté (ADF) pour tenir compte de l'autocorrélation des aléas.
+
+
+
+
+#### **test de Dickey Fuller Augmenté (ADF)**
+
+Nous continuons le test avec la "spécification **none"**, l'équation est la suivante: $\Delta Y_t= (\rho-1)Y_{t-1}+ \epsilon_t+ \sum_{p=1}^P \gamma_p\Delta_{t-1}$
+
+avec $\gamma_p$ le coefficient associé au retard d'ordre p
+
+On teste toujours la signifivativité de $\rho-1$ en tenant compte de l'autocorrélation des aleas avec un nombre de retard p, estimé avant le test.
+
+Les hypothèses: $H_0 : \rho-1 = 0$ versus $H_a: |\rho|< 0$
+
+**Le nombre de retard p**
+
+La formule de Schwert (1989) est utilisée pour déterminer la valeur maximale de retard à introduire, en prenant la partie entière de $[12 × (T/100)^{0.25}]$. Ensuite, la recherche du retard optimal se poursuit en minimisant le critère d'information MAIC, conformément aux équations suivantes, basées sur Ng et Perron (2001) :
+
+$MAIC(p)=ln(\hat{\sigma}^2)+2 \frac{(\tau_T(p)+p)}{(T-pmax)}$
+
+$\tau_T(P)= \frac{\hat{\alpha_0}^2 \sum_{t=pmax+1} y_{t-1}}{\hat{\sigma}^2}$
+
+$\hat{\sigma}^2= 1/(T-pmax)*\sum_{t=pmax+1}^T e_t^2$
+
+La formule de Schwert nous a fourni une valeur maximale de retard de $p = 23$ pour minimiser le critère MAIC.{#choixp1} Malheureusement, le critère MAIC nous a donné une valeur optimale de $p$ égale à 0 [Cliquez ici pour plus de détails](#maic). Dans ce cas, nous avons dû recourir au critère de BIC, qui nous a fourni une valeur optimale de $p$ égale à 1 , avec une valeur t-statistique associée à $\gamma_1$ de 0.363, inférieure à 1,6.[Cliquez ici pour plus de détails](#bic) Cela ne nous permettait pas non plus de retenir $p=1$ comme étant optimal en utilisant le critère BIC.{#choixp}
+
+Nous avons alors entrepris de réduire progressivement $p$ à partir du maximum (pmax = 23) donné par la formule de Schwert, jusqu'à atteindre le dernier retard pour lequel la valeur t-statistique associée à $\gamma$ dépassait 1,6. À la fin de ce processus, nous avons retenu $p = 18$ comme étant la valeur optimale à introduire dans le test de Dickey Fuller Augmenté afin de prendre en compte l'autocorrélation.
+
+```{r}
+library(urca)
+summary(ur.df(rte,type= "none",lags=18))
+```
+
+La valeur calculée de la statistique t est -10.9733, ce qui est inférieur à la valeur critique de -1.95 à 5%. Par conséquent, nous rejetons l'hypothèse nulle ($H_0$) et concluons que le processus de génération de données (PGD) n'est pas de type DS,donc le test ADF permet de conclure à la stationnarité du PGD qui a généré notre série du rendement.
+
+
+
+
+Selon Perron (1989), les tests de Dickey-Fuller (DF) et d'Augmented Dickey-Fuller (ADF) ont tendance à accepter l'hypothèse nulle, $H_0$, lorsqu'ils sont appliqués à une série temporelle stationnaire qui a subi un changement structurel. À l'issue des tests DF et ADF, nous pouvons conclure que le processus générant notre série de rendements est stationnaire. Cependant, en tenant compte du facteur dynamique dans le test de Dickey-Fuller Augmenté, nous procéderons à l'exécution du test de Zivot et Andrews (ZA). Ce test a pour objectif de prendre en considération les changements structurels qui pourraient avoir eu lieu dans la série temporelle.
+
+
+#### Test de racine unitaire de Zivot et Andrews (ZA)
+
+Nous avons sélectionné le modèle A "crash".[Cliquez ici pour plus de détails sur le modèl "both"](#both) L'équation retenue pour le test de Zivot et Andrews pour le rendement logarithmique est la suivante: 
+
+ $y_t= \beta_0+ \beta_1t+\rho y_{t-1}+ \delta DU_t(T_B) + \sum_{j=1}^p \gamma_j \Delta y_{t-j}+ \epsilon_t$ 
+ 
+ Avec $\epsilon_t$ indépendantes et identiquement distribuées selon une loi de moyenne nulle et de variance $\sigma_\epsilon^2$, nous observons un changement structurel affectant le niveau de la série temporelle.
+
+ $T_B$ la date à laquelle ce changement structurel se produit. 
+
+$DU_t$ une variable binaire qui capture le changement structurel en niveau. Elle prend la valeur 1 si $t \geq T_B + 1$ et 0 sinon.
+
+
+Les hypothèses: $H_0$: DS sans changement structurel versus $H_a$: TS avec un unique changement structurel via la
+statistique t qui dépend de la date de rupture.
+
+Le nombre de retard a introduire dans ce test de ZA est celle retenu pour le test ADF (p=18)
+
+
+```{r}
+summary(ur.za(rte, model="intercept",lag=18))
+```
+La p-value associé à $\delta$ est 0.00633< 5%, donc $\delta$ est statistiquement significatif.
+la statistique calculée -9.9233< la valeur critique à 5% =-4.8
+donc on rejette H0.
+
+
+
+La date de rupture est à la 404 ème obsservation,  soit le 2011-08-10 n'est pas significatif. [Cliquez ici pour plus de détails](#grapZA) 
+
+
+
+
+
+
+
+
+
+
+## Propriété 2: Asymétrie perte/gain
+
+Afin d'évaluer l'asymétrie entre les pertes et les gains, nous procéderons à un test visant à examiner l'hypothèse de symétrie. Ce test d'hypothèse de symétrie implique la vérification de l'absence d'asymétrie, également connue sous le nom de "skewness", qui est définie comme le moment centré d'ordre 3 normalisé de la distribution. Soit $μ_3$, le moment centré d'ordre 3 d'une variable aléatoire : $μ_3 = E[(X − μ)^3]$ Notre objectif est de mettre à l'épreuve l'hypothèse que la skewness est égale à zéro, le test d"hypothèse d'écrit:
+
+$H_0: E[\frac{(X − μ)^3}{\sigma_x}]=0$
+
+vs
+
+$H_0: E[\frac{(X − μ)^3}{\sigma_x}]\neq0$
+
+```{r}
+agostino.test(rte) #par defaut bilatéral
+
+```
+
+La p-value 0.0157 \< 0.05, le coefficient du skewness est significatif et positives, cella implique que la majorité des rendements de Merk et Co sont négatives mais de faibles valeurs et quelques rares rendements positives de forte valeurs, donc la probabilité de gain est inférieur à la probailité de perte.
+
+## Propriété 3 : Queues de distribution épaisses
+
+Nous entreprenons une analyse pour déterminer si les queues de distribution des rendements logarithmiques sont plus épaisses que celles d'une distribution normale. Nous voulons mettre à l'épreuve l'hypothèse que la kurtosis est égale à 3 :
+
+$H_0: E[\frac{(X − μ)^4}{\sigma_x}]=0$
+
+vs
+
+$H_0: E[\frac{(X − μ)^4}{\sigma_x}]\neq0$
+
+Si la kurtosis \> 3, on conlure que la distribution est leptokurtique, si elle est \<3, on dit que la distribution est platikurtique.
+
+```{r}
+anscombe.test(rte)#p
+```
+
+La p-value 2.2e-16 \< 0.05, le coefficient Kurtosis est significatif, le Kurtosis du rendement de Merk et CO est égale à 8.4475 supérrieur Kurtosis de la loi normale qui est égale à 3, donc on a une distribution leptokurtique
+
+
+
+
+
+
+
+
+
+
+## Propriété 4: Autocorrélations des carrées des rendements fortes et faibles pour les rendements
+
+##### Les coefficients d'auto-corrélation totale et le corrélogramme
+
+les coefficients d'autocorrélations totales sont souvent utilisés pour mésurer le degré d'autocorrélation d'une série
+
+Notons $\rho(1),\rho(2),\rho(3),...\rho(K)$ l'autocorrélations totales d'ordres 1,2,3...K,
+
+l'autocorrélation totale au retard k est définie comme suit:$γk = cov(rte_t , rte_{t-k})$
+
+et $ρ(k) = γ(k)/γ(0)$
+
+La suite des $ρ$ forme la fonction d'autocorrélation totale et le graphique associé se nomme corrélogramme. Si $rtet$ est une séquence iid satisfaisant $E(rte^2_t) < ∞$ alors $\hatρ(h)$ suit asymptotiquement une loi normalement distribuée
+
+```{r}
+op<-par(mfrow=c(2,1)) 
+Acf(rte,main='ACF du rendement logarithmique')
+Acf(rte^2,main='ACF du rendement logarithmique au carré')
+par(op)
+```
+
+Figure 3: Corrélogrammes du rendement et le carré de rendement logarithmique de Merk & Co
+
+Le corrélogramme de rendements logarithmique révèle une absence d'autocorrélation, à l'exception de l'ordre 10, qui est significative.
+
+En ce qui concerne le corrélogramme des carrés des rendements, cela indique la présence d'autocorrélation. Nous prévoyons de procéder à un test de Ljung-Box afin de corroborer ces observations.
+
+#### Le test de Ljung-Box
+
+Le test de Ljung-Box teste la nullité de tous les $ρ(k)$. Le test d'hypothèse s'écrit: $H_0 : ρ(k) = 0$ pour $k = 1$ jusqu'à K versus $H_1 : ρ(k) = 0$ pour au moins une valeur de $k$ comprise entre $1$ et $K$
+
+la statitique est : $Q_K = T(T + 2)\sum_{i=1}^{N}{\frac{\hatρ(k)^2}{T-4}}$
+
+Sous $H_0$ la statitique suit une loi de Khi deux à $K$ degré de liberté
+
+```{r}
+pvaluesrt =rep(0,20)
+pvaluesrt2 =rep(0,20)
+for (i in 1:25 ) {
+pvaluesrt[i] = Box.test(rte,lag=i,type="Ljung-Box")$p.value
+pvaluesrt2[i] = Box.test(rte^2,lag=i,type="Ljung-Box")$p.value
+}
+
+
+print(pvaluesrt2)
+
+```
+
+les p-values sont toutes inférieur à 5% donc on conclut la présence d'autocorrélation dans les carrés de rendement .
+
+```{r}
+print(pvaluesrt)
+```
+
+Les valeurs de p (p-value) sont supérieures à 5% jusqu'à l'ordre 9, ce qui nous permet de conclure à l'absence d'autocorrélation dans le rendement logarithmique jusqu'à l'ordre 9. Cependant, à partir de l'ordre 10, les valeurs de p (p-value) deviennent inférieures à 5%, confirmant ainsi la présence d'autocorrélation à partir de cet ordre.
+
+Étant donné que la dixième p-value du test de Ljung-Box est inférieure à 0.05, nous rejetons l'hypothèse nulle selon laquelle il n'y a pas d'autocorrélation dans les rendements logarithmiques. Pour modéliser cette caractéristique, nous allons utiliser un modèle ARMA(p, q).
+
+#### Mélisation de modèle ARIMA {#ARMAN}
+
+La fonction eacf s'est avérée insuffisante pour la détermination des paramètres p (nombre de retards autorégressifs) et q (nombre de retards de moyenne mobile) à incorporer dans le modèle ARIMA [Cliquez ici pour détails sur les modèles non retenus](#eacf). Dans ce contexte, nous avons procédé à une analyse attentive de la fonction d'autocorrélation partielle (PACF) ainsi que de la fonction d'autocorrélation total (ACF) dans le but de déterminer les valeurs optimales pour p et q.
+
+Nous avons exploré divers modèles [Cliquez ici pour détails sur les modèles non retenus](#ARMA), mais seulement le modèle MA(10) a été en mesure de capturer l'autocorrélation observée dans le rendement logarithmique. Il est à noter que les résidus du modèle MA(10) présentent une espérance nulle et ne manifestent pas d'autocorrélation.
+
+
+
+```{r}
+library(lmtest)
+library(forecast)
+reg<-Arima(rte, order=c(0,0,10), fixed=c(0,0,0,0,0,0,0,0,0,NA,0) )
+coeftest(reg)
+```
+
+#### Test sur les résidus du modèle MA(10)
+
+Un test d'espérance nulle a été réalisé sur les résidus de la régression MA(A). Il convient de noter que l'hypothèse nulle de ce test stipule que l'espérance des résidus $(E(ϵ))$ est égale à zéro, tandis que l'hypothèse alternative (H_a) postule que l'espérance des résidus est différente de zéro.
+
+```{r}
+residu<-reg$res
+t.test(residu)
+```
+
+La p-value de 0.9988; étant supérieure à 0,05, ne nous permet pas de rejeter l'hypothèse nulle $(H_0)$ selon laquelle l'espérance des résidus est nulle. Par conséquent, nous poursuivons avec le test d'absence d'autocorrélation.
+
+#### Test d'absence d'autocorrélation
+
+```{r}
+library(tseries)
+residuv=(residu-mean(residu))/sd(residu)
+K<-30
+tmp<-rep(0,K)
+for(i in 1:K){
+tmp[i]<-Box.test(residuv,lag=i,type="Ljung-Box")$p.value
+}
+tmp
+```
+
+Tous les p-values sont supérieurs à 5%, nous pouvons conclure que les aléas du MA(10) ne sont pas autocorrélés..
+
+
+
+
+
+
+
+## Propriété 5 : Clusters de volatilité
+
+L'observation empirique des séries financières révèle qu'il existe une tendance à des variations importantes des rendements qui sont généralement suivies de variations substantielles. Ce phénomène conduit à la formation de regroupements ou de clusters de volatilité, comme illustré dans la figure 1 (graphique du bas). Cette observation remet en question l'hypothèse d'homoscédasticité conditionnelle, qui suppose que la variance des résidus à un moment donné (temps t) ne dépend pas de l'amplitude des résidus au carré des périodes précédentes.
+
+Afin de confirmer cette hypothèse, nous procédons à l'exécution du test ARCH d'Engle (1982). En notant $ϵ_t$ comme le i-ème résidu d'un modèle ARMA(p,q) représentant l'équation de la moyenne conditionnelle de $r_t$, et $e$ comme les résidus associés à son estimation, le modèle ARCH(m) qui représente l'équation de la volatilité de $r_t$ s'exprime de la manière suivante :
+
+$σ^2_t = α_0 + α_1ϵ^2_{t−1} + α_2ϵ^2_{t−2} + ... + α_mϵ^2_{t−m}$
+
+Le test d'hypothèse est:
+
+$H_0 : α_1 = α_2 = ... = α_m = 0$ donc homoscédasticité conditionnelle
+
+versus
+
+Ha :au moins 1 $α-i$ est diffirent de 0 avec $i \ne 0$
+
+donc hétéroscédasticité conditionnelle. Pour obtenir la statistique de test, nous estimons par MCO puis nous multiplions le coefficient de détermination (le $R^2$) de cette dernière régression avec N afin d'obtenir $LM = N × R^2$.
+
+Sous $H_0,LM ∼ χ2(m)$.
+
+$e^2_t = a + c_1e^2_{t−1} + ... + c_pe^2_{t−p} + erreurs$
+
+```{r}
+library(FinTS)
+LM20<-ArchTest(as.numeric(rte),lag=20)
+LM20
+```
+
+La p-value est inférieur à 5%, On rejette $H_0$, donc les résidus ne sont pas homoscédasticité.
+
+
+
+
+
+
+## Propriété 6 : Queues épaisses conditionnelles
+
+Même après avoir pris en compte la correction du clustering de volatilité en utilisant un modèle ARCH, la distribution des résidus conserve son caractère leptokurtique, bien que le kurtosis soit réduit par rapport au cas non conditionnel
+
+Étant donné que nous avons déjà estimé l'équation de la moyenne de $r_t$ à l'aide d'un modèle MA(10), confirmé que les résidus ont une moyenne nulle, ne présentent pas d'autocorrélation, nous avons  détectecter par l'application du test d'Engle sur $r_t$  la présence de clusters de volatilité. Nous allons procédé maintenant à l'estimation du modèle GARCH(1,1) sur les résidus du MA(10). L'équation de modèle est la suivante: 
+
+$σ^2_t = α_ 0 + α_1ϵ^2_{t−1} + β_1σ^2_{t−1}$
+
+```{r}
+volat<-garch(residuv,order=c(1,1))
+```
+
+```{r}
+summary(volat)
+```
+Tous les coefficients du modèle GARCH(1,1) présentent une significativité statistique, avec des valeurs de p-valeur inférieures à 5%. Cette observation soulève la question suivante : le modèle GARCH(1,1) parvient-il à capturer la totalité de l'hétéroscédasticité conditionnelle présente dans nos données, ou y subsiste-t-il encore ?
+
+Nous allons faire le test d'Engel sur les résidus du modèle GARCH(1,1) 
+
+```{r}
+ArchTest(volat$res,lag=18)
+```
+La p-valeur est de 0.9998 dépassant ainsi le seuil de 5%. Par conséquent, nous acceptons l'hypothèse nulle, indiquant l'absence d'effet ARCH dans les résidus. En utilisant notre modèle MA(10) associé à un GARCH(1,1), nous avons réussi à modéliser à la fois l'autocorrélation et l'hétéroscédasticité conditionnelle présentes dans le rendement logarithmique. La prochaine étape consiste maintenant à évaluer si les queues de distribution des résidus de notre modèle ARMA-GARCH sont plus épaisses que celles d'une distribution normale.
+
+
+
+```{r}
+anscombe.test(volat$res)
+```
+Le test de kurtosis appliqué aux résidus de notre modèle MA(10)-GARCH(1,1) affiche une p-valeur de 2.2e-16, inférieur au seuil de 5% et la valeur de la kurtosis est de 10.022. Par conséquent, nous pouvons conclure que les queues de distribution des résidus de notre modèle MA(10)-GARCH(1,1) présentent une queue plus épaisse que celle d'une distribution normale.
+
+ 
+
+
+## Propriété 7 : Effet de levier
+
+Une asymétrie notable se manifeste en ce qui concerne l'impact des valeurs passées inférieures à zéro par rapport à celui des valeurs passées supérieures à zéro sur la volatilité des cours ou des rendements logarithmiques. Les baisses de cours ont tendance à provoquer une augmentation de la volatilité supérieure à celle observée lors d'une hausse des cours de même ampleur. Pour visualiser cet effet, nous créons un graphique des prix et de leur volatilité. Pour estimer la volatilité au moment t, nous utilisons l'écart-type des 22 derniers jours comme estimateur naïf.
+
+$σ^{(22)}_t= \sqrt{\sum^t_{i=t-22}{(y_i-(\sum^t_{i=t-22}(y_i/22))^2}/22}$
+
+```{r}
+sig<-rep(0,T)
+for(t in 1:T)
+{
+sig[t]<-sqrt(sum(rte[t-22]-(sum(rte[t-22]/22)))^2/22)
+}
+sigma=sig[24:T]*100
+plot(log(pt[24:length(rte)]),type='l',col=2,axes=F,xlab="", ylab="",lwd=3)
+axis(2,at=seq(6,8.5,by=0.25))#axe de gauche
+par(new=T)
+plot(sigma, col="grey",type='l',axes = F,xlab="", ylab="")
+axis(4,at=seq(0,1.5,by=0.25))#axe de droite
+legend("topleft", c("log(pt)","sigma"),col = c(2, 1),lty=c(1,1))
+```
+
+La figure 4: Logarithme de l’action de Merk & Co journalier et écart-type récursif journalier des rendements de de Merk & Co
+
+
+
+
+
+La figure 4, illustre l'observation d'effet de levier. En effet, elle met en évidence que les périodes de chute du marché se distinguent par une augmentation de la volatilité supérieure à celle observée à la suite d'une hausse des cours.
+
+## Propriété 8: La saisonnalité
+
+Les rendements sont influencés par les effets liés aux week-ends et aux mois de janvier
+
+#### Effet week-end
+
+Les marchés financiers subissent l'influence de l'accumulation d'informations pendant les périodes de fermeture de la fin de semaine, ainsi que pendant les jours fériés et après les périodes de vacances. Selon les travaux de French et Roll (1986) et ceux de Baillie et Bollerslev (1989), on constate que la volatilité des rendements commence à augmenter à partir du mercredi, tandis que, selon French et Roll (1986), elle atteint son pic le lundi.
+
+```{r}
+jour=format(dates[1:T], format = "%A")
+tableaures <- data.frame(matrix(NA,ncol=5,nrow=4))
+colnames(tableaures) <- c("lundi","mardi","mercredi","jeudi","vendredi")
+rownames(tableaures) <- c("moyenne en %","´ecart-type annuel en %","skewness","kurtosis")
+14
+rtmar<-as.numeric(rte[jour=="mardi"])
+mardi<-mean(rtmar) #moyenne journaliere
+tableaures[1,2] <- mardi*100 #moyenne journaliere en %
+tableaures[2,2] <- sd(rtmar)*100*sqrt(252) #ecart-type annualise en %
+tableaures[3,2] <- skewness(rtmar)
+tableaures[4,2] <- kurtosis(rtmar)
+rtmer<-as.numeric(rte[jour=="mercredi"])
+mer<-mean(rtmer)
+tableaures[1,3] <- mer*100
+tableaures[2,3] <- sd(rtmer)*100*sqrt(252)
+tableaures[3,3] <- skewness(rtmer)
+tableaures[4,3] <- kurtosis(rtmer)
+rtjeu<-as.numeric(rte[jour=="jeudi"])
+jeudi<-mean(rtjeu)
+tableaures[1,4] <- jeudi*100
+tableaures[2,4] <- sd(rtjeu)*100*sqrt(252)
+tableaures[3,4] <- skewness(rtjeu)
+tableaures[4,4] <- kurtosis(rtjeu)
+rtven<-as.numeric(rte[jour=="vendredi"])
+ven<-mean(rtven)
+tableaures[1,5] <- ven*100
+tableaures[2,5] <- sd(rtven)*100*sqrt(252)
+tableaures[3,5] <- skewness(rtven)
+tableaures[4,5] <- kurtosis(rtven)
+rtlun<-as.numeric(rte[jour=="lundi"])
+lundi<-mean(rtlun)
+tableaures[1,1] <- lundi*100
+tableaures[2,1] <- sd(rtlun)*100*sqrt(252)
+tableaures[3,1] <- skewness(rtlun)
+tableaures[4,1] <- kurtosis(rtlun)
+tableaures
+```
+
+Nous observons effectivement l'effet week-end, car la variance des rendements est la plus élevée le lundi, suivie de celle du jeudi
+
+#### Effet janvier
+
+Des rendements statistiquement anormaux, qu'ils soient positifs ou négatifs, sont observés sur les marchés d'actions au cours des différents mois de l'année. Les mois les plus favorables en termes de performances sont généralement Avril, suivi de Janvier, puis de Décembre. Cependant, il convient de noter que ce phénomène n'est pas particulièrement visible sur la figure 5
+
+```{r}
+monthplot(rte, ylab="rendement",main="", cex.main=1,col.base=2,lwd.base=3)
+```
+
+Figure 5: Rendement logarithmique de Merk & Co par mois
+
+
+# Conclusion
+
+En nous plongeant dans l'analyse de l'action de Merck & Co, nous avons exploré les huit propriétés fondamentales des séries financières. Ces huit caractéristiques, clairement mises en évidence, revêtent une importance capitale. Notre prochaine étape consistera à les intégrer dans la construction d'un modèle de Value-at-Risk (VaR) exhaustif, qui prendra en compte ces propriétés pour une évaluation plus précise du risque financier de l'action de Merk & Co.
+
+
+
+
+
+
+
+
+
+
+# Annexes
+
+#### Annexe 1:  La spécification des rendements logarithmes: {#annexe-1}
+
+#### Annexe 1.1: ***La spécification "trend"***
+
+L'équation de la spécification "trend" est la suivante:
+
+$\Delta Y_t = β_0 + β_1tendancet + (\rho − 1)Y_{t−1}+\epsilon_t$
+
+Dans cette équation nous testons la significacité du coefficient $β_1$
+
+```{r}
+summary(ur.df(rte,type= "trend",lags=0))
+```
+
+Le coefficient $β_1$ associé à la tendance n'est pas significatif puisque sa p-value 0.730 \> à 0.05. Cela implique que le processus qui a généré les données ne pourra pas être TS. On passe au modèle contenant une constante mais pas de tendance. [Cliquez ici pour retour sur test DF](#DF)
+
+#### Annexe 1.2**La spécification "drift"** L'équation de la spécification "drift" est la suivante:
+
+$\Delta Y_t = β_0 + (\rho − 1)Y_{t−1}+\epsilon_t$
+
+Dans cette équation nous testons la significacité du coefficient $β_0$
+
+```{r}
+summary(ur.df(rte,type= "drift",lags=0))
+```
+
+Le coefficient $β_0$ n'est pas significatif puisque la p-value associée est égale 0.186 \> 5%, donc la spécification avec la constante n'est pas la bonne
+[Cliquez ici pour retour sur test DF](#DF)
+
+#### Annexe 1.3 Le critère MAIC {#maic}
+
+```{r}
+Schwert<-as.integer(12*(T/100)^(0.25))
+library(CADFtest)
+summary(CADFtest(rte, criterion="MAIC",type="none",max.lag.y=Schwert))
+```
+
+Le critère de MAIC donne nous p = 0, nous allons utiiser le critère BIC [Cliquez ici pour retour p optimal](#choixp)
+
+#### Annexe 1.4 Le critère BIC   {#bic}
+
+```{r}
+pmax=Schwert
+summary(ur.df(rte,type="none",lag=pmax,selectlag="BIC"))
+```
+
+La t-statistique associée à $\gamma_1$ = 0.363, nous ne pouvons pas retenu comme p=1 comme p optimal    [Cliquez ici pour retour p optimal](#choixp1)
+
+
+#### Annexe 1.5 Test de ZA
+l'équation de modèle "both"   {#both}
+$y_t= \beta_0+ \beta_1t+\rho y_{t-1}+ \delta_1 DU_t(T_B) +\delta_2 DT_t(T_B)+ \sum_{j=1}^p \gamma_j \Delta y_{t-j}+ \epsilon_t$ 
+ Avec $\epsilon_t$ indépendantes et identiquement distribuées selon une loi de moyenne nulle et de variance $\sigma_\epsilon^2$, nous observons un changement structurel affectant le niveau de la série temporelle.
+
+ $T_B$ la date à laquelle ce changement structurel se produit. 
+
+$DU_t$ une variable binaire qui capture le changement structurel en niveau. Elle prend la valeur 1 si $t \geq T_B + 1$ et 0 sinon.
+
+$DT_t$ une variable qui capture la pente du changement structurel. Elle vaut $t - T_B$ si $t \geq T_B + 1$ et 0 sinon.
+
+Ces deux variables $DU_t$ et $DT_t$ sont utilisées pour modéliser et quantifier l'impact du changement structurel sur la série.
+
+
+Les hypothèses: $H_0$: **DS sans changement structurel** versus $H_a$: **TS avec un unique changement structurel** via la
+statistique t qui dépend de la date de rupture.
+
+```{r}
+summary(ur.za(rte, model="both",lag=18))
+```
+
+
+La p-valeur associée au coefficient de la pente de changement structurel, $\gamma_2$, est de 0.1351, ce qui dépasse le seuil de 5 %. Par conséquent, ce coefficient n'est pas statistiquement significatif. Par conséquent, nous ne pouvons pas retenir le modèle "both".
+
+
+
+#### Annexe 1.6: Gragpe de date de rupture  {#grapZA}
+
+```{r}
+plot(ur.za(rte, model="intercept",lag=18))
+```
+
+La figure ci dessous, nous montre que le potentiel date de rupture à la 404 ème oservation n'est pas significatif.
+
+  
+  
+#### Annexe 1.7: Les tests de racine unitaire sur l'ensenmble test
+
+***Test de Ducker Fuller***
+```{r}
+library(urca)
+summary(ur.df(rtt,lag=0,type="none"))
+```
+La valeur calculée de la statistique t est-48.4741, ce qui est inférieur à la valeur critique de -1.95 à 5%. Par conséquent, nous rejetons l'hypothèse nulle (H0) et concluons que le processus de génération de données (PGD) n'est pas de type DS.
+
+
+***Vérification des autocorrélation dans les résidu***
+
+```{r}
+library(urca)
+plot(ur.df(rtt,lag=0,type="none"))
+```
+Présence d'aotocorrélation à l'ordre 6,7,8,9
+
+***test de ADF ***
+
+```{r}
+TT=length(rtt)
+Schwert<-as.integer(12*(TT/100)^(0.25))
+library(CADFtest)
+summary(CADFtest(rtt, criterion="MAIC",type="none",max.lag.y=Schwert))
+```
+
+Le critère de MAIC donne pour le p-optimal de rtt p=1
+
+```{r}
+library(urca)
+summary(ur.df(rtt,lag=1,type="none"))
+```
+La valeur calculée de la statistique t est -31.1548, ce qui est inférieur à la valeur critique de -1.95 à 5%. Par conséquent, nous rejetons l'hypothèse nulle (H0) et concluons que le processus de génération de données (PGD) n'est pas de type DS.
+
+
+Nous pouvons conclure que le $r_{te}$ et $r_{tt}$ sont stationnaires
+ 
+ 
+ 
+ 
+ 
+ 
+  
+#### annexe 2 : Asymétrie de perte/gain sur l'ensemble test rtt
+
+```{r}
+agostino.test(rtt) #par defaut bilatéral
+
+```
+
+La p-value 7.673e-05 \< 0.05, le coefficient du skewness est significatif et négative
+
+En ce qui concerne la propriété d'asymétrie des pertes et des gains, nos conclusions présentent des différences significatives entre l'ensemble d'estimation et l'ensemble de test
+
+
+
+###Annexe 3: Queues de distribution épaisses sur $r_{tt}$
+
+```{r}
+anscombe.test(rtt)#p
+```
+
+La p-value 2.2e-16 \< 0.05, le coefficient Kurtosis est significatif, le Kurtosis du l'ensemble d'estimation de Merk et CO est égale à 9.4067 supérrieur Kurtosis de la loi normale qui est égale à 3, donc on a une distribution leptokurtique sur l'ensemble test
+
+Nous aboutissons à la même conclusion pour l'ensemble d'estimation  et l'ensemble de test pour la propriété "Queues de distribution épaisses"
+
+
+
+
+
+***Le choix de p et q pour le modèle:*** {#eacf}
+
+
+
+```{r}
+library(TSA)
+library(lmtest)
+eacf(rte)
+```
+
+La fonction eacf n'a pas réussir nous donner le p et le q à retenu pour notre modèle.
+
+
+*** Quelques modèle nons retenus *** {#ARMA}
+
+```{r}
+library(lmtest)
+library(forecast)
+reg<-Arima(rte, order=c(2,0,10) )
+coeftest(reg)
+```
+Seul le coefficient de MA(10) qui est significatif    [Cliquez ici pour retour sur Modélisation ](#ARMAN)
+
+
+
+```{r}
+library(lmtest)
+library(forecast)
+reg<-Arima(rte, order=c(1,0,10) )
+coeftest(reg)
+```
+
+
+
+Seul le coefficient de MA(10) qui est significatif
+
+
+
+```{r}
+library(lmtest)
+library(forecast)
+reg<-Arima(rte, order=c(0,0,10) )
+coeftest(reg)
+```
+Nous avons pris la décision de maintenir tous les coefficients à zéro, à l'exception de MA(10).
+
+
+
+#### Annexe 4 Autocorrélations des carrées des rendements fortes et faibles pour les rendements sur l'ensemble d'estimation
+
+```{r}
+op<-par(mfrow=c(2,1)) 
+Acf(rtt,main='ACF du rendement logarithmique')
+Acf(rtt^2,main='ACF du rendement logarithmique au carré')
+par(op)
+```
+Le Le corrélogramme  de l'ensemble de test révèle une présence d'autocorrélation dans des rendements logarithmiques et les carées des rendements.
+
+```{r}
+pvaluesrtt =rep(0,20)
+pvaluesrtt2 =rep(0,20)
+for (i in 1:25 ) {
+pvaluesrt[i] = Box.test(rtt,lag=i,type="Ljung-Box")$p.value
+pvaluesrt2[i] = Box.test(rtt^2,lag=i,type="Ljung-Box")$p.value
+}
+
+
+print(pvaluesrtt2)
+print(pvaluesrtt)
+```
+
+
+
+Présence d'autocorrélation dans le rendement et les carrés des rendements des l'ensemble de test
+
+
+
+
+#### Annexe 5: Queues épaisses conditionnelles
+
+
+
+```{r}
+
+library(FinTS)
+LM20<-ArchTest(as.numeric(rtt),lag=20)
+LM20
+```
+La p-value est inférieur à 5%, On rejette $H_0$, donc les résidus de l'ensemble de test ne sont pas homoscédasticité.
+
+
+
+#### Annexe 6: Effet de levier sur l'ensemble de test
+```{r}
+TT=length(rtt)
+sig<-rep(0,TT)
+for(t in 1:TT)
+{
+sig[t]<-sqrt(sum(rtt[t-22]-(sum(rtt[t-22]/22)))^2/22)
+}
+sigma=sig[24:TT]*100
+plot(log(pt[24:length(rtt)]),type='l',col=2,axes=F,xlab="", ylab="",lwd=3)
+axis(2,at=seq(6,8.5,by=0.25))#axe de gauche
+par(new=TT)
+plot(sigma, col="grey",type='l',axes = F,xlab="", ylab="")
+axis(4,at=seq(0,1.5,by=0.25))#axe de droite
+legend("topleft", c("log(pt)","sigma"),col = c(2, 1),lty=c(1,1))
+```
+la figure ci-dessous nous montre la présence  d'effet de levier dans l'ensemble test aussi
+
+
+
+
+
+#### Annexe 7: La saisonnalité sur l'ensemble test rtt
+
+
+***Effet week end***
+
+```{r}
+jour=format(dates[1:TT], format = "%A")
+tableaures <- data.frame(matrix(NA,ncol=5,nrow=4))
+colnames(tableaures) <- c("lundi","mardi","mercredi","jeudi","vendredi")
+rownames(tableaures) <- c("moyenne en %","´ecart-type annuel en %","skewness","kurtosis")
+14
+rtmar<-as.numeric(rtt[jour=="mardi"])
+mardi<-mean(rtmar) #moyenne journaliere
+tableaures[1,2] <- mardi*100 #moyenne journaliere en %
+tableaures[2,2] <- sd(rtmar)*100*sqrt(252) #ecart-type annualise en %
+tableaures[3,2] <- skewness(rtmar)
+tableaures[4,2] <- kurtosis(rtmar)
+rtmer<-as.numeric(rte[jour=="mercredi"])
+mer<-mean(rtmer)
+tableaures[1,3] <- mer*100
+tableaures[2,3] <- sd(rtmer)*100*sqrt(252)
+tableaures[3,3] <- skewness(rtmer)
+tableaures[4,3] <- kurtosis(rtmer)
+rtjeu<-as.numeric(rte[jour=="jeudi"])
+jeudi<-mean(rtjeu)
+tableaures[1,4] <- jeudi*100
+tableaures[2,4] <- sd(rtjeu)*100*sqrt(252)
+tableaures[3,4] <- skewness(rtjeu)
+tableaures[4,4] <- kurtosis(rtjeu)
+rtven<-as.numeric(rte[jour=="vendredi"])
+ven<-mean(rtven)
+tableaures[1,5] <- ven*100
+tableaures[2,5] <- sd(rtven)*100*sqrt(252)
+tableaures[3,5] <- skewness(rtven)
+tableaures[4,5] <- kurtosis(rtven)
+rtlun<-as.numeric(rte[jour=="lundi"])
+lundi<-mean(rtlun)
+tableaures[1,1] <- lundi*100
+tableaures[2,1] <- sd(rtlun)*100*sqrt(252)
+tableaures[3,1] <- skewness(rtlun)
+tableaures[4,1] <- kurtosis(rtlun)
+tableaures
+```
+
+Nous observons également l'effet week-end sur l'ensemble de test aussi,  mais avec la variance de jeudi la plus élevée.
+
+
+
+
+```{r}
+monthplot(rtt, ylab="rendement",main="", cex.main=1,col.base=2,lwd.base=3)
+
+``` 
+
+Le phénomène d'effet janvier n'est pas visible aussi sur l'ensemble de test
+
+
+
+
+#### annexe 8  Tableau récapitalitf des propriétés des séries financières sur l'ensemble d'estimation rte et l'ensemble de test rtt
+
+| Propriété  | Ensemble d'estimation rte| Ensemble de test rtt |
+|:--------:|:-------------:|------:|
+| La stationarité | oui | oui |
+| Asymétrie perte/gain | oui | oui |
+| Queues de distribution épaisses | oui | oui |
+| Autocorrélations des carrées des rendements fortes et faibles pour les rendements | oui | oui |
+| Clusters de volatilité | oui | oui |
+| Queues de distribution épaisses | oui | oui |
+| Effet de levier | oui | oui |
+| La saisonnalité | oui | oui |
+
+
+
